@@ -1,0 +1,42 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# Virtual Environment
+venv/
+.env/
+
+# Environment variables
+.env
+
+# Output files
+output/
+
+# Model weights
+weights/
+
+# macOS
+.DS_Store
+
+# VS Code
+.vscode/
+
+# Logs
+*.log
+
+# Jupyter
+.ipynb_checkpoints/
+
+# PyTorch / temp
+*.pt
+*.pth
+
+# Build files
+build/
+dist/
+*.egg-info/
+
+# Cache
+.cache/

@@ -1,0 +1,9 @@
+torch
+torchvision
+transformers
+opencv-python
+Pillow
+numpy
+openai>=1.0.0
+python-dotenv
+supervision
