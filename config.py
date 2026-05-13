@@ -14,8 +14,7 @@ GDINO_CONFIG_PATH     = "weights/GroundingDINO_SwinT_OGC.py"
 GDINO_CHECKPOINT_PATH = "weights/groundingdino_swint_ogc.pth"
 
 #detection
-DETECTION_LABELS  = ["mobile phone", "paper notebook", "human person"]
-GDINO_BOX_THRESH  = 0.45
+DETECTION_LABELS  = ["cell phone"]
 GDINO_TEXT_THRESH = 0.35
 
 # Trigger
@@ -35,4 +34,6 @@ VIOLATION_LOG_PATH = "output/violations.log"
 
 YOLO_MODEL_PATH = "weights/yolov8s.pt" 
 YOLO_CONFIDENCE = 0.35
-YOLO_TARGET_CLASSES = ["cell phone", "book", "person", "laptop", "remote"]
+YOLO_TARGET_CLASSES = ["cell phone"]
+
+LOG_LEVEL = "WARNING"

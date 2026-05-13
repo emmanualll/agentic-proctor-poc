@@ -8,8 +8,6 @@ from utils.logger import get_logger
 
 logger = get_logger("trigger")
 
-_prev_frame = None
-
 _model = None
 
 def load_trigger_model():
