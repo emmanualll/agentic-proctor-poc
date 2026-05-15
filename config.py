@@ -14,7 +14,7 @@ GDINO_CONFIG_PATH     = "weights/GroundingDINO_SwinT_OGC.py"
 GDINO_CHECKPOINT_PATH = "weights/groundingdino_swint_ogc.pth"
 
 #detection
-DETECTION_LABELS  = ["cell phone"]
+DETECTION_LABELS  = ["cell phone", ]
 GDINO_TEXT_THRESH = 0.35
 
 # Trigger

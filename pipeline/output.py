@@ -15,6 +15,7 @@ def compose_output(
     frame: np.ndarray,
     validated_detections: list[dict],
     violations: list[dict],
+    status_text = None
 ) -> np.ndarray:
     """
     It draws the violation overlays on final annotated frame
@@ -48,6 +49,12 @@ def compose_output(
             VIOLATION_COLOR, 1
         )
 
+
+    if status_text:
+        cv2.putText(output, status_text, (10, 90),
+                    cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 0), 2)
+        
+        
     return output
 
 

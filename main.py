@@ -18,6 +18,7 @@ logger = get_logger("main")
 os.makedirs(OUTPUT_DIR, exist_ok = True)
 
 _last_run_time = 0
+_last_suspicious_time = 0
 frame_queue = queue. Queue(maxsize=3)
 _phone_tracker = {"first_seen": None, "severity": "LOW"}
 
@@ -51,13 +52,39 @@ def run_pipeline(frame):
             print("VLM invalidated detection — no violation")
             return
 
-        final_severity = get_time_based_severity(result["severity"])
+        # 4: screen-on detection
+        screen_status = "SCREEN: UNCLEAR"
+        screen_on     = False
+        x1, y1, x2, y2 = detections[0]["bbox"]
+        roi = frame[y1:y2, x1:x2]
+        if roi.size > 0:
+            phone_brightness = float(cv2.cvtColor(roi, cv2.COLOR_BGR2GRAY).mean())
+            full_brightness  = float(cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY).mean())
+            brightness_ratio = phone_brightness / full_brightness if full_brightness > 0 else 1
 
+            if brightness_ratio > 0.88:
+                screen_status = "SCREEN: ON"
+                screen_on     = True
+            elif brightness_ratio > 0.70:
+                screen_status = "SCREEN: UNCLEAR"
+            else:
+                screen_status = "SCREEN: OFF"
+
+            print(f"📱 {screen_status} (ratio={round(brightness_ratio,2)})")
+
+        if screen_on and result["severity"] == "LOW":
+            result["severity"] = "MEDIUM"
+            result["reason"]  += " — screen appears ON"
+
+        # 5: time based severity
+        final_severity = get_time_based_severity(result["severity"])
         if final_severity != result["severity"]:
-            reason = f"Candidate has been holding phone for an extended period. Originally {result['severity']}: {result['reason']}"
+            reason = f"Candidate has been holding phone for extended period. Originally {result['severity']}: {result['reason']}"
+            print(f"⏱️  SEVERITY ESCALATED: {result['severity']} → {final_severity}")
         else:
             reason = result["reason"]
-        # 4: build violation
+
+        # 6: build violation
         violation = {
             "rule":       "Phone detected during exam.",
             "label":      "phone",
@@ -67,8 +94,8 @@ def run_pipeline(frame):
             "confidence": detections[0]["confidence"],
         }
 
-        # 5: compose + save
-        final_frame = compose_output(annotated, [violation], [violation])
+        # 7: compose + save
+        final_frame = compose_output(annotated, [violation], [violation], status_text=screen_status)
         frame_path, _ = save_output(final_frame, [violation], detections)
         log_violation(violation, frame_path)
 
@@ -94,7 +121,7 @@ def pipeline_worker():
             frame_queue.task_done()
 
 def main(source=0):
-    global _last_run_time
+    global _last_run_time, _last_suspicious_time
 
     load_yolo()
     load_trigger_model()
@@ -129,15 +156,18 @@ def main(source=0):
             cooldown_passed = (now - _last_run_time) > PIPELINE_COOLDOWN_SECONDS
             suspicious      = is_suspicious(frame)
 
-            if suspicious and cooldown_passed and not frame_queue.full():
-                frame_queue.put(frame.copy())
-                _last_run_time = now
+            if suspicious:
+                _last_suspicious_time = now
                 if _phone_tracker["first_seen"] is None:
                     _phone_tracker["first_seen"] = now
-                logger.info(f"Frame {frame_idx} queued.")
+                if cooldown_passed and not frame_queue.full():
+                    frame_queue.put(frame.copy())
+                    _last_run_time = now
+                    logger.info(f"Frame {frame_idx} queued.")
 
             if not suspicious:
-                reset_tracker()
+                if now - _last_suspicious_time > 3:
+                    reset_tracker()
 
         frame_idx += 1
         if cv2.waitKey(1) & 0xFF == ord('q'):

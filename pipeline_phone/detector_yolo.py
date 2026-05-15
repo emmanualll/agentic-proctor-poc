@@ -30,6 +30,12 @@ def detect_phone(frame) -> list[dict]:
             continue
         x1, y1, x2, y2 = map(int, box.xyxy[0].tolist())
         conf = round(float(box.conf), 3)
+        bw = x2 - x1
+        bh = y2 - y1
+        area_pct = round((bw * bh) / (frame.shape[0] * frame.shape[1]) * 100, 1)
+        if area_pct < 0.5:
+            print(f"Filtered — too small: {area_pct}%")
+            continue
         detections.append({
             "label":      "phone",
             "confidence": conf,
