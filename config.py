@@ -12,10 +12,11 @@ AZURE_OPENAI_DEPLOYMENT  = os.getenv("AZURE_OPENAI_DEPLOYMENT", "interns-gpt-4.1
 
 GDINO_CONFIG_PATH     = "weights/GroundingDINO_SwinT_OGC.py"
 GDINO_CHECKPOINT_PATH = "weights/groundingdino_swint_ogc.pth"
-
+EARPHONE_MODEL_PATH = "/Users/emmanual/agentic-proctor-poc/earphone_dataset/runs/detect/weights/earphone_runs/earphone_v8s/weights/best.pt"
 #detection
-DETECTION_LABELS  = ["cell phone", ]
+DETECTION_LABELS  = ["cell phone", "earphone"]
 GDINO_TEXT_THRESH = 0.35
+
 
 # Trigger
 TRIGGER_MOTION_THRESHOLD = 5000  

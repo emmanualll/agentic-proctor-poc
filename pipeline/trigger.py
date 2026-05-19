@@ -5,6 +5,8 @@ from utils.logger import get_logger
 from ultralytics import YOLO
 from config import YOLO_MODEL_PATH, YOLO_CONFIDENCE, YOLO_TARGET_CLASSES, MAX_ALLOWED_PERSONS
 from utils.logger import get_logger
+from pipeline_phone.detector_earphone import detect_earphone
+
 
 logger = get_logger("trigger")
 
@@ -43,4 +45,10 @@ def is_suspicious(frame) -> bool:
     if triggered:
         logger.debug(f"Trigger fired — detected: {detected_labels}")
 
+    if not triggered:
+        earphone_dets = detect_earphone(frame)
+        if earphone_dets:
+            triggered = True
+            logger.debug("Trigger fired — earphone detected")
+    
     return triggered

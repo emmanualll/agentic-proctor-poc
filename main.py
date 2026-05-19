@@ -14,11 +14,15 @@ from pipeline_phone.detector_yolo import load_yolo, detect_phone
 from pipeline_phone.vlm_phone import validate_phone
 from utils.logger import get_logger
 
+from pipeline_phone.detector_earphone import load_earphone_model, detect_earphone
+from pipeline_phone.vlm_earphone import validate_earphone
+
 logger = get_logger("main")
 os.makedirs(OUTPUT_DIR, exist_ok = True)
 
 _last_run_time = 0
 _last_suspicious_time = 0
+earphone_queue = queue.Queue(maxsize=1)
 frame_queue = queue. Queue(maxsize=3)
 _phone_tracker = {"first_seen": None, "severity": "LOW"}
 
@@ -32,27 +36,25 @@ def log_violation(violation: dict, frame_path: str):
 
 def run_pipeline(frame):
     try:
-        # 1. YOLO detection
+        # 2. Phone detection
         detections = detect_phone(frame)
         print(f"YOLO detections: {detections}")
-
         if not detections:
-            print("No phone detected — skipping")
+            print("No phone detected — skipping phone pipeline")
             reset_tracker()
             return
 
-        # 2: annotate
+        # 3. Annotate
         annotated = annotate(frame, detections)
 
-        # 3: VLM validation + severity
+        # 4. VLM validation
         result = validate_phone(frame, detections)
         print(f"VLM result: {result}")
-
         if not result or not result.get("valid"):
             print("VLM invalidated detection — no violation")
             return
 
-        # 4: screen-on detection
+        # 5. Screen-on detection
         screen_status = "SCREEN: UNCLEAR"
         screen_on     = False
         x1, y1, x2, y2 = detections[0]["bbox"]
@@ -61,7 +63,6 @@ def run_pipeline(frame):
             phone_brightness = float(cv2.cvtColor(roi, cv2.COLOR_BGR2GRAY).mean())
             full_brightness  = float(cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY).mean())
             brightness_ratio = phone_brightness / full_brightness if full_brightness > 0 else 1
-
             if brightness_ratio > 0.88:
                 screen_status = "SCREEN: ON"
                 screen_on     = True
@@ -69,14 +70,13 @@ def run_pipeline(frame):
                 screen_status = "SCREEN: UNCLEAR"
             else:
                 screen_status = "SCREEN: OFF"
-
             print(f"📱 {screen_status} (ratio={round(brightness_ratio,2)})")
 
         if screen_on and result["severity"] == "LOW":
             result["severity"] = "MEDIUM"
             result["reason"]  += " — screen appears ON"
 
-        # 5: time based severity
+        # 6. Time-based severity
         final_severity = get_time_based_severity(result["severity"])
         if final_severity != result["severity"]:
             reason = f"Candidate has been holding phone for extended period. Originally {result['severity']}: {result['reason']}"
@@ -84,7 +84,7 @@ def run_pipeline(frame):
         else:
             reason = result["reason"]
 
-        # 6: build violation
+        # 7. Build violation
         violation = {
             "rule":       "Phone detected during exam.",
             "label":      "phone",
@@ -94,7 +94,7 @@ def run_pipeline(frame):
             "confidence": detections[0]["confidence"],
         }
 
-        # 7: compose + save
+        # 8. Compose + save
         final_frame = compose_output(annotated, [violation], [violation], status_text=screen_status)
         frame_path, _ = save_output(final_frame, [violation], detections)
         log_violation(violation, frame_path)
@@ -112,8 +112,18 @@ def pipeline_worker():
         except queue.Empty:
             continue
         try:
-            run_pipeline(frame)
-            print("Worker Done")
+            now = time.time()
+            cooldown_passed = (now - _last_run_time) > PIPELINE_COOLDOWN_SECONDS
+            suspicious = is_suspicious(frame)
+            if suspicious:
+                _last_suspicious_time = now
+                if _phone_tracker["first_seen"] is None:
+                    _phone_tracker["first_seen"] = now
+                if cooldown_passed:
+                    run_pipeline(frame)
+            else:
+                if now - _last_suspicious_time > 3:
+                    reset_tracker()
         except Exception as e:
             logger.error(f"Worker error : {e}")
         finally:
@@ -122,14 +132,21 @@ def pipeline_worker():
 
 def main(source=0):
     global _last_run_time, _last_suspicious_time
+    _last_earphone_check = time.time() + 3
 
     load_yolo()
+    load_earphone_model()
     load_trigger_model()
     logger.info("Phone proctoring pipeline ready. Press Q to quit.")
 
     worker = threading.Thread(target=pipeline_worker, daemon=True)
     worker.start()
     print(f"Worker started: {worker.is_alive()}")
+
+    earphone_thread = threading.Thread(target=earphone_worker, daemon=True)
+    earphone_thread.start()
+    print(f"Earphone worker started: {earphone_thread.is_alive()}")
+
 
     cap = cv2.VideoCapture(source)
     if not cap.isOpened():
@@ -140,6 +157,12 @@ def main(source=0):
         ret, frame = cap.read()
         if not ret:
             break
+
+        now = time.time()
+        if now - _last_earphone_check > 10:
+            _last_earphone_check = now
+            if not earphone_queue.full():
+                earphone_queue.put(frame.copy())
 
         # display every frame — smooth feed
         display = frame.copy()
@@ -152,22 +175,10 @@ def main(source=0):
 
         # process only every Nth frame
         if frame_idx % FRAME_SAMPLE_INTERVAL == 0:
-            now             = time.time()
+            now = time.time()
             cooldown_passed = (now - _last_run_time) > PIPELINE_COOLDOWN_SECONDS
-            suspicious      = is_suspicious(frame)
-
-            if suspicious:
-                _last_suspicious_time = now
-                if _phone_tracker["first_seen"] is None:
-                    _phone_tracker["first_seen"] = now
-                if cooldown_passed and not frame_queue.full():
-                    frame_queue.put(frame.copy())
-                    _last_run_time = now
-                    logger.info(f"Frame {frame_idx} queued.")
-
-            if not suspicious:
-                if now - _last_suspicious_time > 3:
-                    reset_tracker()
+            if cooldown_passed and not frame_queue.full():
+                frame_queue.put(frame.copy())
 
         frame_idx += 1
         if cv2.waitKey(1) & 0xFF == ord('q'):
@@ -198,6 +209,41 @@ def max_severity(a: str, b: str) -> str:
 
 def reset_tracker():
     _phone_tracker["first_seen"] = None
+
+
+def earphone_worker():
+    while True:
+        try:
+            frame = earphone_queue.get(timeout=1)
+        except queue.Empty:
+            continue
+        try:
+            phrases, logits = detect_earphone(frame)
+            print(f"Earphone detections: {phrases} {logits}")
+            if len(phrases) > 0:
+                ep_result = validate_earphone(phrases, logits)
+                print(f"Earphone VLM result: {ep_result}")
+                if ep_result and ep_result.get("valid"):
+                    violation = {
+                        "rule":       "Audio device detected during exam.",
+                        "label":      "earphone",
+                        "severity":   ep_result["severity"],
+                        "reason":     ep_result["reason"],
+                        "bbox":       (0, 0, 0, 0),
+                        "confidence": round(float(logits.max()), 3),
+                    }
+                    annotated = frame.copy()
+                    cv2.rectangle(annotated, (0, 0), (frame.shape[1], frame.shape[0]), (255, 0, 255), 4)
+                    cv2.putText(annotated, "EARPHONE DETECTED", (20, 50),
+                                cv2.FONT_HERSHEY_SIMPLEX, 1.2, (255, 0, 255), 3)
+                    final_frame = compose_output(annotated, [violation], [violation], status_text="EARPHONE DETECTED")
+                    frame_path, _ = save_output(final_frame, [violation], [])
+                    log_violation(violation, frame_path)
+        except Exception as e:
+            import traceback
+            traceback.print_exc()
+        finally:
+            earphone_queue.task_done()
 
 if __name__ == "__main__":
     main(source=0)

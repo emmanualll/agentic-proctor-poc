@@ -5,6 +5,7 @@ COLORS = {
     "person":   (0, 255, 0),
     "phone":    (0, 0, 255),
     "notebook": (255, 165, 0),
+    "earphone": (255, 0, 255)
 }
 DEFAULT_COLOR = (200, 200, 200)
 

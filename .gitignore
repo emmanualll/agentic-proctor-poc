@@ -40,3 +40,13 @@ dist/
 
 # Cache
 .cache/
+
+# weights
+runs/
+
+# dataset
+earphone_dataset/
+
+test.py
+
+test_image.py
