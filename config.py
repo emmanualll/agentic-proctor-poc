@@ -38,3 +38,7 @@ YOLO_CONFIDENCE = 0.35
 YOLO_TARGET_CLASSES = ["cell phone"]
 
 LOG_LEVEL = "WARNING"
+
+LOCAL_MODEL_ID = os.getenv("LOCAL_MODEL_ID")
+LOCAL_ENDPOINT = os.getenv("LOCAL_ENDPOINT")
+LOCAL_HEADERS  = {"Content-Type": "application/json"}

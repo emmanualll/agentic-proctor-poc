@@ -47,6 +47,10 @@ runs/
 # dataset
 earphone_dataset/
 
+#test files
 test.py
+test_*.py
+*_test.py
 
-test_image.py
+debug_*.jpg
+

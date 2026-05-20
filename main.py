@@ -1,3 +1,11 @@
+import warnings
+warnings.filterwarnings("ignore")
+import logging
+logging.getLogger("transformers").setLevel(logging.ERROR)
+logging.getLogger("torch").setLevel(logging.ERROR)
+logging.getLogger("ultralytics").setLevel(logging.ERROR)
+logging.getLogger("groundingdino").setLevel(logging.ERROR)
+
 import cv2
 import time
 import threading
@@ -17,6 +25,8 @@ from utils.logger import get_logger
 from pipeline_phone.detector_earphone import load_earphone_model, detect_earphone
 from pipeline_phone.vlm_earphone import validate_earphone
 
+from utils.display import print_header, print_status, print_earphone_detections, print_phone_detections, print_llm_result, print_violation
+
 logger = get_logger("main")
 os.makedirs(OUTPUT_DIR, exist_ok = True)
 
@@ -32,13 +42,14 @@ def log_violation(violation: dict, frame_path: str):
         ts = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         line = f"[{ts}] severity={violation['severity']} reason={violation['reason']} | frame: {frame_path}\n"
         f.write(line)
-    print(f"\n🚨 PHONE VIOLATION [{violation['severity']}]: {violation['reason']}")
+    print_violation(violation)
 
+    
 def run_pipeline(frame):
     try:
         # 2. Phone detection
         detections = detect_phone(frame)
-        print(f"YOLO detections: {detections}")
+        print_phone_detections(detections)
         if not detections:
             print("No phone detected — skipping phone pipeline")
             reset_tracker()
@@ -49,7 +60,7 @@ def run_pipeline(frame):
 
         # 4. VLM validation
         result = validate_phone(frame, detections)
-        print(f"VLM result: {result}")
+        print_llm_result(result, label="phone")
         if not result or not result.get("valid"):
             print("VLM invalidated detection — no violation")
             return
@@ -98,6 +109,7 @@ def run_pipeline(frame):
         final_frame = compose_output(annotated, [violation], [violation], status_text=screen_status)
         frame_path, _ = save_output(final_frame, [violation], detections)
         log_violation(violation, frame_path)
+        print_violation(violation)
 
     except Exception as e:
         import traceback
@@ -108,7 +120,7 @@ def pipeline_worker():
     while True:
         try:
             frame = frame_queue.get(timeout=1)
-            print("WORKER GOT FRAME -- runnning pipeline....")
+            print_status("PHONE CHECK — analyzing...", "yellow")
         except queue.Empty:
             continue
         try:
@@ -137,6 +149,7 @@ def main(source=0):
     load_yolo()
     load_earphone_model()
     load_trigger_model()
+    print_header()
     logger.info("Phone proctoring pipeline ready. Press Q to quit.")
 
     worker = threading.Thread(target=pipeline_worker, daemon=True)
@@ -219,26 +232,34 @@ def earphone_worker():
             continue
         try:
             phrases, logits = detect_earphone(frame)
-            print(f"Earphone detections: {phrases} {logits}")
+            print_status("EARPHONE CHECK — running...", "yellow")
+            print_earphone_detections(phrases, logits)
             if len(phrases) > 0:
-                ep_result = validate_earphone(phrases, logits)
-                print(f"Earphone VLM result: {ep_result}")
-                if ep_result and ep_result.get("valid"):
-                    violation = {
-                        "rule":       "Audio device detected during exam.",
-                        "label":      "earphone",
-                        "severity":   ep_result["severity"],
-                        "reason":     ep_result["reason"],
-                        "bbox":       (0, 0, 0, 0),
-                        "confidence": round(float(logits.max()), 3),
-                    }
-                    annotated = frame.copy()
-                    cv2.rectangle(annotated, (0, 0), (frame.shape[1], frame.shape[0]), (255, 0, 255), 4)
-                    cv2.putText(annotated, "EARPHONE DETECTED", (20, 50),
-                                cv2.FONT_HERSHEY_SIMPLEX, 1.2, (255, 0, 255), 3)
-                    final_frame = compose_output(annotated, [violation], [violation], status_text="EARPHONE DETECTED")
-                    frame_path, _ = save_output(final_frame, [violation], [])
-                    log_violation(violation, frame_path)
+                airpod_conf = max([float(l) for p, l in zip(phrases, logits) 
+                       if "airpod" in p.lower()], default=0)
+                strong_count = len([l for l in logits if float(l) > 0.25])
+                if not (airpod_conf > 0.30 and strong_count >= 4):
+                    print_status("EARPHONE CHECK — clean", "green")
+                else:
+                    ep_result = validate_earphone(phrases, logits)
+                    print_llm_result(ep_result, label="earphone")
+                    if ep_result and ep_result.get("valid"):
+                        violation = {
+                            "rule":       "Audio device detected during exam.",
+                            "label":      "earphone",
+                            "severity":   ep_result["severity"],
+                            "reason":     ep_result["reason"],
+                            "bbox":       (0, 0, 0, 0),
+                            "confidence": round(float(logits.max()), 3),
+                        }
+                        annotated = frame.copy()
+                        cv2.rectangle(annotated, (0, 0), (frame.shape[1], frame.shape[0]), (255, 0, 255), 4)
+                        cv2.putText(annotated, "EARPHONE DETECTED", (20, 50),
+                                    cv2.FONT_HERSHEY_SIMPLEX, 1.2, (255, 0, 255), 3)
+                        final_frame = compose_output(annotated, [violation], [violation], status_text="EARPHONE DETECTED")
+                        frame_path, _ = save_output(final_frame, [violation], [])
+                        log_violation(violation, frame_path)
+                        print_violation(violation)
         except Exception as e:
             import traceback
             traceback.print_exc()

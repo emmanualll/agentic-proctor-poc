@@ -1,11 +1,9 @@
 import json, re, requests, numpy as np
 from utils.logger import get_logger
+from config import LOCAL_MODEL_ID, LOCAL_ENDPOINT, LOCAL_HEADERS
 
 logger = get_logger("vlm_earphone")
 
-LOCAL_MODEL_ID = "gpt-oss-120b"
-LOCAL_ENDPOINT = "https://excelsoft-llm.excelindia.com/v1/gpt-oss-120b/responses"
-LOCAL_HEADERS  = {"Content-Type": "application/json"}
 
 SYSTEM_PROMPT = """You are a strict proctoring assistant specializing in audio device detection during exams.
 
