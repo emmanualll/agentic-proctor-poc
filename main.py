@@ -15,7 +15,7 @@ from datetime import datetime
 
 from config import PIPELINE_COOLDOWN_SECONDS, OUTPUT_DIR, VIOLATION_LOG_PATH, FRAME_SAMPLE_INTERVAL, EARPHONE_CHECK_INTERVAL
 from pipeline.frame_reader import read_frames
-from pipeline.trigger import is_suspicious, load_trigger_model
+from pipeline.trigger import is_suspicious, load_trigger_model, get_person_bbox
 from pipeline.annotator import annotate
 from pipeline.output import compose_output, save_output
 from pipeline_phone.detector_yolo import load_yolo, detect_phone
@@ -234,6 +234,8 @@ def earphone_worker():
             phrases, logits, boxes = detect_earphone(frame)
             print_status("EARPHONE CHECK — running...", "yellow")
             print_earphone_detections(phrases, logits)
+            person_bbox = get_person_bbox(frame)
+            person_present = person_bbox is not None
             if len(phrases) > 0:
                 max_conf = max([float(l) for l in logits], default=0)
                 strong_count = len([l for l in logits if float(l) > 0.25])
@@ -241,7 +243,7 @@ def earphone_worker():
                 if max_conf < 0.60 and strong_count < 3:
                     print_status("EARPHONE CHECK — clean", "green")
                 else:
-                    ep_result = validate_earphone(phrases, logits, boxes)
+                    ep_result = validate_earphone(phrases, logits, boxes, person_present)
                     print_llm_result(ep_result, label="earphone")
                     if ep_result and ep_result.get("valid"):
                         violation = {

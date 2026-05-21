@@ -7,26 +7,30 @@ logger = get_logger("vlm_earphone")
 
 SYSTEM_PROMPT = """You are a strict proctoring assistant detecting audio devices during exams.
 
-You receive detection metadata including label, confidence, and position in frame.
+You receive detection metadata including label, confidence, position, and whether a person is present.
 
 Rules:
-- REJECT if no detection is near ear region (top-left or top-right of frame)
 - REJECT if all confidences below 0.25
-- ACCEPT if any detection above 0.35 is in near ear region
-- ACCEPT if multiple detections above 0.30 regardless of position
+- REJECT if no detection contains "airpod" or "earbud" in the label
+- ACCEPT if any detection above 0.35
+- If person is confirmed present, assume detections are worn — do NOT suggest device is on desk
 
 Severity:
-- LOW: detections present but position unclear or low confidence
-- MEDIUM: clear detection, confidence 0.35-0.50
-- HIGH: confidence above 0.50 OR detection explicitly near ear region
+- LOW: max confidence 0.25-0.40
+- MEDIUM: max confidence 0.40-0.55
+- HIGH: max confidence above 0.55
 
-Your reason MUST mention the position and whether it appears worn or on a desk.
+Your reason must mention:
+- The highest confidence detection label and score
+- Whether person is present
+- The severity justification
+Do NOT list all detections. Keep reason to one sentence.
 
 Respond ONLY in this JSON format:
 {
   "valid": true,
-  "severity": "HIGH",
-  "reason": "Airpod detected near right ear region with confidence 0.547 — appears to be worn"
+  "severity": "MEDIUM",
+  "reason": "..."
 }"""
 
 def _describe_detection(phrases, logits, boxes) -> str:
@@ -68,11 +72,12 @@ def _call_local_model(prompt: str) -> str:
                         return c.get("text")
     raise ValueError("No output_text in response")
 
-def validate_earphone(phrases, logits, boxes):
+def validate_earphone(phrases, logits, boxes, person_present=False):
     if not phrases:
         return None
     description = _describe_detection(phrases, logits, boxes)
-    prompt = f"Exam frame audio device detection:\n{description}\n\nValidate and assess severity. Return only valid JSON."
+    person_context = "Person confirmed present in frame." if person_present else "No person detected."
+    prompt = f"Exam frame audio device detection:\n{person_context}\n{description}\n\nValidate and assess severity. Return only valid JSON."
     try:
         raw = _call_local_model(prompt)
         raw = re.sub(r"```json|```", "", raw).strip()
