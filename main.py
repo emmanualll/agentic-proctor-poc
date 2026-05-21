@@ -13,7 +13,7 @@ import os
 import queue
 from datetime import datetime
 
-from config import PIPELINE_COOLDOWN_SECONDS, OUTPUT_DIR, VIOLATION_LOG_PATH, FRAME_SAMPLE_INTERVAL
+from config import PIPELINE_COOLDOWN_SECONDS, OUTPUT_DIR, VIOLATION_LOG_PATH, FRAME_SAMPLE_INTERVAL, EARPHONE_CHECK_INTERVAL
 from pipeline.frame_reader import read_frames
 from pipeline.trigger import is_suspicious, load_trigger_model
 from pipeline.annotator import annotate
@@ -172,7 +172,7 @@ def main(source=0):
             break
 
         now = time.time()
-        if now - _last_earphone_check > 10:
+        if now - _last_earphone_check > EARPHONE_CHECK_INTERVAL:
             _last_earphone_check = now
             if not earphone_queue.full():
                 earphone_queue.put(frame.copy())
@@ -231,17 +231,15 @@ def earphone_worker():
         except queue.Empty:
             continue
         try:
-            phrases, logits = detect_earphone(frame)
+            phrases, logits, boxes = detect_earphone(frame)
             print_status("EARPHONE CHECK — running...", "yellow")
             print_earphone_detections(phrases, logits)
             if len(phrases) > 0:
-                airpod_conf = max([float(l) for p, l in zip(phrases, logits) 
-                       if "airpod" in p.lower()], default=0)
                 strong_count = len([l for l in logits if float(l) > 0.25])
-                if not (airpod_conf > 0.30 and strong_count >= 4):
+                if strong_count < 3:
                     print_status("EARPHONE CHECK — clean", "green")
                 else:
-                    ep_result = validate_earphone(phrases, logits)
+                    ep_result = validate_earphone(phrases, logits, boxes)
                     print_llm_result(ep_result, label="earphone")
                     if ep_result and ep_result.get("valid"):
                         violation = {

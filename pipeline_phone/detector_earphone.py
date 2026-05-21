@@ -27,4 +27,4 @@ def detect_earphone(frame):
         caption=CAPTION,
         box_threshold=0.25, text_threshold=0.20
     )
-    return phrases, logits
+    return phrases, logits, boxes

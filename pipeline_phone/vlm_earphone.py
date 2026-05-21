@@ -5,33 +5,45 @@ from config import LOCAL_MODEL_ID, LOCAL_ENDPOINT, LOCAL_HEADERS
 logger = get_logger("vlm_earphone")
 
 
-SYSTEM_PROMPT = """You are a strict proctoring assistant specializing in audio device detection during exams.
+SYSTEM_PROMPT = """You are a strict proctoring assistant detecting audio devices during exams.
 
-Your job:
-1. Validate if the detected object is genuinely an earphone, airpod, earbud, or headphone
-2. Assign severity based on confidence and position
+You receive detection metadata including label, confidence, and position in frame.
 
-Validation rules:
-- ACCEPT if confidence above 0.30
-- REJECT if confidence below 0.20
-- Multiple detections = higher confidence
+Rules:
+- REJECT if no detection is near ear region (top-left or top-right of frame)
+- REJECT if all confidences below 0.25
+- ACCEPT if any detection above 0.35 is in near ear region
+- ACCEPT if multiple detections above 0.30 regardless of position
 
-Severity rules:
-- LOW: single detection, low confidence (0.25-0.35)
-- MEDIUM: clear detection, confidence 0.35-0.5
-- HIGH: multiple detections or confidence above 0.5
+Severity:
+- LOW: detections present but position unclear or low confidence
+- MEDIUM: clear detection, confidence 0.35-0.50
+- HIGH: confidence above 0.50 OR detection explicitly near ear region
+
+Your reason MUST mention the position and whether it appears worn or on a desk.
 
 Respond ONLY in this JSON format:
 {
   "valid": true,
-  "severity": "MEDIUM",
-  "reason": "Earbud detected near ear region with moderate confidence"
+  "severity": "HIGH",
+  "reason": "Airpod detected near right ear region with confidence 0.547 — appears to be worn"
 }"""
 
-def _describe_detection(phrases, logits) -> str:
+def _describe_detection(phrases, logits, boxes) -> str:
     lines = []
-    for phrase, conf in zip(phrases, logits):
-        lines.append(f"Detected: {phrase}, confidence: {round(float(conf), 3)}")
+    boxes = boxes.tolist()
+    for phrase, conf, box in zip(phrases, logits, boxes):
+        cx, cy = float(box[0]), float(box[1])
+        
+        h_pos = "left" if cx < 0.35 else "right" if cx > 0.65 else "center"
+        v_pos = "top" if cy < 0.35 else "bottom" if cy > 0.65 else "middle"
+        
+        near_ear = v_pos == "top" and h_pos in ["left", "right"]
+        location = "near ear region" if near_ear else f"{v_pos}-{h_pos} of frame"
+        
+        lines.append(
+            f"Detected: {phrase}, confidence: {round(float(conf), 3)}, position: {location}"
+        )
     return "\n".join(lines)
 
 def _call_local_model(prompt: str) -> str:
@@ -56,10 +68,10 @@ def _call_local_model(prompt: str) -> str:
                         return c.get("text")
     raise ValueError("No output_text in response")
 
-def validate_earphone(phrases, logits):
+def validate_earphone(phrases, logits, boxes):
     if not phrases:
         return None
-    description = _describe_detection(phrases, logits)
+    description = _describe_detection(phrases, logits, boxes)
     prompt = f"Exam frame audio device detection:\n{description}\n\nValidate and assess severity. Return only valid JSON."
     try:
         raw = _call_local_model(prompt)
