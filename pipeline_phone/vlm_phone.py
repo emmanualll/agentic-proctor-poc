@@ -4,14 +4,12 @@ import cv2
 import numpy as np
 import requests
 import re
+from config import LOCAL_ENDPOINT, LOCAL_MODEL_ID, LOCAL_HEADERS
 
 from utils.logger import get_logger
 
 logger = get_logger("vlm_phone")
 
-LOCAL_MODEL_ID = "gpt-oss-120b"
-LOCAL_ENDPOINT = "https://excelsoft-llm.excelindia.com/v1/gpt-oss-120b/responses"
-LOCAL_HEADERS  = {"Content-Type": "application/json"}
 
 SYSTEM_PROMPT = """You are a strict proctoring assistant specializing in phone detection during exams.
 

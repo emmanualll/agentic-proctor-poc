@@ -235,8 +235,10 @@ def earphone_worker():
             print_status("EARPHONE CHECK — running...", "yellow")
             print_earphone_detections(phrases, logits)
             if len(phrases) > 0:
+                max_conf = max([float(l) for l in logits], default=0)
                 strong_count = len([l for l in logits if float(l) > 0.25])
-                if strong_count < 3:
+
+                if max_conf < 0.60 and strong_count < 3:
                     print_status("EARPHONE CHECK — clean", "green")
                 else:
                     ep_result = validate_earphone(phrases, logits, boxes)

@@ -20,6 +20,20 @@ def load_trigger_model():
         logger.info("YOLOv8n ready.")
     return _model
 
+def get_person_bbox(frame):
+    model = load_trigger_model()
+    results = model(frame, verbose=False, conf=YOLO_CONFIDENCE)
+    persons = []
+    for box in results[0].boxes:
+        label = results[0].names[int(box.cls)]
+        if label == "person":
+            x1, y1, x2, y2 = map(int, box.xyxy[0])
+            area = (x2 - x1) * (y2 - y1)
+            persons.append({"bbox": (x1, y1, x2, y2), "area": area})
+    if not persons:
+        return None
+    return max(persons, key=lambda d: d["area"])["bbox"]
+
 def is_suspicious(frame) -> bool:
     """
     it returns true only if suspicious object is detected
