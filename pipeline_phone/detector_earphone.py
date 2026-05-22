@@ -2,7 +2,9 @@ from groundingdino.util.inference import load_model, load_image, predict
 from utils.logger import get_logger
 import numpy as np
 import cv2, tempfile, os
-
+import os
+os.environ["TRANSFORMERS_OFFLINE"] = "1"
+os.environ["HF_DATASETS_OFFLINE"] = "1"
 logger = get_logger("detector_earphone")
 
 GDINO_CONFIG     = "weights/GroundingDINO_SwinT_OGC.py"
@@ -25,6 +27,6 @@ def detect_earphone(frame):
     boxes, logits, phrases = predict(
         model=_model, image=image,
         caption=CAPTION,
-        box_threshold=0.25, text_threshold=0.20
+        box_threshold=0.30, text_threshold=0.20
     )
     return phrases, logits, boxes

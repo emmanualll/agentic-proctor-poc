@@ -1,5 +1,8 @@
 import warnings
 warnings.filterwarnings("ignore")
+import os
+os.environ["TRANSFORMERS_OFFLINE"] = "1"
+os.environ["HF_DATASETS_OFFLINE"] = "1"
 import logging
 logging.getLogger("transformers").setLevel(logging.ERROR)
 logging.getLogger("torch").setLevel(logging.ERROR)
@@ -32,6 +35,7 @@ os.makedirs(OUTPUT_DIR, exist_ok = True)
 
 _last_run_time = 0
 _last_suspicious_time = 0
+_earphone_history = []
 earphone_queue = queue.Queue(maxsize=1)
 frame_queue = queue. Queue(maxsize=3)
 _phone_tracker = {"first_seen": None, "severity": "LOW"}
@@ -223,6 +227,14 @@ def max_severity(a: str, b: str) -> str:
 def reset_tracker():
     _phone_tracker["first_seen"] = None
 
+def get_escalated_earphone_severity(llm_severity: str) -> str:
+    _earphone_history.append(llm_severity)
+    if len(_earphone_history) > 5:
+        _earphone_history.pop(0)
+    non_none = [s for s in _earphone_history if s is not None]
+    if len(non_none) >= 3:
+        return "HIGH"
+    return llm_severity
 
 def earphone_worker():
     while True:
@@ -241,6 +253,7 @@ def earphone_worker():
                 strong_count = len([l for l in logits if float(l) > 0.25])
 
                 if max_conf < 0.60 and strong_count < 3:
+                    _earphone_history.append(None)
                     print_status("EARPHONE CHECK — clean", "green")
                 else:
                     ep_result = validate_earphone(phrases, logits, boxes, person_present)
@@ -249,7 +262,7 @@ def earphone_worker():
                         violation = {
                             "rule":       "Audio device detected during exam.",
                             "label":      "earphone",
-                            "severity":   ep_result["severity"],
+                            "severity":   get_escalated_earphone_severity(ep_result["severity"]),
                             "reason":     ep_result["reason"],
                             "bbox":       (0, 0, 0, 0),
                             "confidence": round(float(logits.max()), 3),
