@@ -9,7 +9,7 @@ logger = get_logger("detector_earphone")
 
 GDINO_CONFIG     = "weights/GroundingDINO_SwinT_OGC.py"
 GDINO_CHECKPOINT = "weights/groundingdino_swint_ogc.pth"
-CAPTION = "airpod . earbud. wired earbud"
+CAPTION = "airpod . earbud . wired earbud"
 
 _model = None
 

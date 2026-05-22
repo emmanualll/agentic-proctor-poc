@@ -238,48 +238,179 @@ def get_escalated_earphone_severity(llm_severity: str) -> str:
 
 def earphone_worker():
     while True:
+
         try:
             frame = earphone_queue.get(timeout=1)
+
         except queue.Empty:
             continue
+
         try:
+
             phrases, logits, boxes = detect_earphone(frame)
+
             print_status("EARPHONE CHECK — running...", "yellow")
             print_earphone_detections(phrases, logits)
-            person_bbox = get_person_bbox(frame)
-            person_present = person_bbox is not None
-            if len(phrases) > 0:
-                max_conf = max([float(l) for l in logits], default=0)
-                strong_count = len([l for l in logits if float(l) > 0.25])
 
-                if max_conf < 0.60 and strong_count < 3:
-                    _earphone_history.append(None)
-                    print_status("EARPHONE CHECK — clean", "green")
+            person_bbox = get_person_bbox(frame)
+
+            # =====================================================
+            # RELATIVE EAR-REGION FILTER
+            # =====================================================
+
+            if person_bbox and phrases:
+
+                h, w = frame.shape[:2]
+
+                px1, py1, px2, py2 = person_bbox
+
+                pw = px2 - px1
+                ph = py2 - py1
+
+                frame_coverage = ph / h
+
+                # -------------------------------------------------
+                # CLOSE CAMERA ADAPTATION
+                # -------------------------------------------------
+
+                if frame_coverage > 0.75:
+
+                    head_y2 = py1 + int(ph * 0.75)
+
+                    left_x2  = px1 + int(pw * 0.40)
+                    right_x1 = px2 - int(pw * 0.40)
+
+                    logger.info("Close-camera mode enabled")
+
                 else:
-                    ep_result = validate_earphone(phrases, logits, boxes, person_present)
-                    print_llm_result(ep_result, label="earphone")
-                    if ep_result and ep_result.get("valid"):
-                        violation = {
-                            "rule":       "Audio device detected during exam.",
-                            "label":      "earphone",
-                            "severity":   get_escalated_earphone_severity(ep_result["severity"]),
-                            "reason":     ep_result["reason"],
-                            "bbox":       (0, 0, 0, 0),
-                            "confidence": round(float(logits.max()), 3),
-                        }
-                        annotated = frame.copy()
-                        cv2.rectangle(annotated, (0, 0), (frame.shape[1], frame.shape[0]), (255, 0, 255), 4)
-                        cv2.putText(annotated, "EARPHONE DETECTED", (20, 50),
-                                    cv2.FONT_HERSHEY_SIMPLEX, 1.2, (255, 0, 255), 3)
-                        final_frame = compose_output(annotated, [violation], [violation], status_text="EARPHONE DETECTED")
-                        frame_path, _ = save_output(final_frame, [violation], [])
-                        log_violation(violation, frame_path)
-                        print_violation(violation)
+
+                    head_y2 = py1 + int(ph * 0.40)
+
+                    left_x2  = px1 + int(pw * 0.30)
+                    right_x1 = px2 - int(pw * 0.30)
+
+                filtered_phrases = []
+                filtered_logits  = []
+                filtered_boxes   = []
+
+                if hasattr(boxes, "tolist"):
+                    boxes_iter = boxes.tolist()
+                else:
+                    boxes_iter = boxes
+
+                for p, l, b in zip(phrases, logits, boxes_iter):
+
+                    cx, cy = float(b[0]), float(b[1])
+
+                    ex = int(cx * w)
+                    ey = int(cy * h)
+
+                    in_head_height = py1 <= ey <= head_y2
+                    in_left_zone   = px1 <= ex <= left_x2
+                    in_right_zone  = right_x1 <= ex <= px2
+
+                    near_ear = (
+                        in_head_height and
+                        (in_left_zone or in_right_zone)
+                    )
+
+                    if near_ear:
+
+                        filtered_phrases.append(p)
+                        filtered_logits.append(l)
+                        filtered_boxes.append(b)
+
+                        logger.info(
+                            f"EAR REGION PASS — {p} conf={float(l):.3f}"
+                        )
+
+                    else:
+
+                        logger.info(
+                            f"EAR REGION REJECT — {p} conf={float(l):.3f}"
+                        )
+
+                phrases = filtered_phrases
+                logits  = filtered_logits
+                boxes   = filtered_boxes
+
+            # =====================================================
+            # AREA FILTER
+            # =====================================================
+
+            area_phrases = []
+            area_logits  = []
+            area_boxes   = []
+
+            for p, l, b in zip(phrases, logits, boxes):
+
+                bw = float(b[2])
+                bh = float(b[3])
+
+                area = bw * bh
+
+                if area < 0.026:
+
+                    area_phrases.append(p)
+                    area_logits.append(l)
+                    area_boxes.append(b)
+
+                else:
+
+                    logger.info(
+                        f"AREA REJECT — {p} conf={float(l):.3f}"
+                    )
+
+            phrases = area_phrases
+            logits  = area_logits
+            boxes   = area_boxes
+
+            # =====================================================
+            # CONFIDENCE FILTER
+            # =====================================================
+
+            max_conf = max(
+                [float(l) for l in logits],
+                default=0
+            )
+
+            logger.info(
+                f"Earphone max_conf={max_conf:.3f}"
+            )
+
+            if max_conf < 0.40:
+
+                logger.info(
+                    "Earphone detections rejected before VLM"
+                )
+
+                continue
+
+            # =====================================================
+            # VLM VALIDATION
+            # =====================================================
+
+            logger.info(f"Passing {len(phrases)} filtered detections to VLM")
+            result = validate_earphone(
+                phrases,
+                logits,
+                boxes,
+                person_present=person_bbox is not None
+            )
+
+            if result and result.get("valid"):
+
+                logger.warning(
+                    f"EARPHONE VIOLATION — "
+                    f"{result['severity']} — "
+                    f"{result['reason']}"
+                )
+
         except Exception as e:
-            import traceback
-            traceback.print_exc()
-        finally:
-            earphone_queue.task_done()
+
+            logger.error(
+                f"Earphone worker error: {e}"
+            )
 
 if __name__ == "__main__":
     main(source=0)

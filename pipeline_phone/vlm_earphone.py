@@ -35,15 +35,24 @@ Respond ONLY in this JSON format:
 
 def _describe_detection(phrases, logits, boxes) -> str:
     lines = []
-    boxes = boxes.tolist()
+    if hasattr(boxes, "tolist"):
+        boxes = boxes.tolist()
     for phrase, conf, box in zip(phrases, logits, boxes):
         cx, cy = float(box[0]), float(box[1])
         
         h_pos = "left" if cx < 0.35 else "right" if cx > 0.65 else "center"
         v_pos = "top" if cy < 0.35 else "bottom" if cy > 0.65 else "middle"
         
-        near_ear = v_pos == "top" and h_pos in ["left", "right"]
-        location = "near ear region" if near_ear else f"{v_pos}-{h_pos} of frame"
+        near_ear = (
+            v_pos in ["top", "middle"] and
+            h_pos in ["left", "right"]
+        )
+
+        location = (
+            "near probable ear region"
+            if near_ear
+            else f"{v_pos}-{h_pos} of frame"
+        )
         
         lines.append(
             f"Detected: {phrase}, confidence: {round(float(conf), 3)}, position: {location}"
