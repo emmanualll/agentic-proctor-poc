@@ -280,8 +280,7 @@ def earphone_worker():
                     left_x2  = px1 + int(pw * 0.40)
                     right_x1 = px2 - int(pw * 0.40)
 
-                    logger.info("Close-camera mode enabled")
-
+                    print_status("EARPHONE — close camera mode", "dim")
                 else:
 
                     head_y2 = py1 + int(ph * 0.40)
@@ -320,15 +319,10 @@ def earphone_worker():
                         filtered_logits.append(l)
                         filtered_boxes.append(b)
 
-                        logger.info(
-                            f"EAR REGION PASS — {p} conf={float(l):.3f}"
-                        )
+                        print_status(f"EAR REGION PASS — {p} conf={float(l):.3f}", "green")
 
                     else:
-
-                        logger.info(
-                            f"EAR REGION REJECT — {p} conf={float(l):.3f}"
-                        )
+                        print_status(f"EAR REGION REJECT — {p} conf={float(l):.3f}", "red")
 
                 phrases = filtered_phrases
                 logits  = filtered_logits
@@ -356,10 +350,7 @@ def earphone_worker():
                     area_boxes.append(b)
 
                 else:
-
-                    logger.info(
-                        f"AREA REJECT — {p} conf={float(l):.3f}"
-                    )
+                    print_status(f"AREA REJECT — {p} conf={float(l):.3f}", "red")
 
             phrases = area_phrases
             logits  = area_logits
@@ -374,15 +365,11 @@ def earphone_worker():
                 default=0
             )
 
-            logger.info(
-                f"Earphone max_conf={max_conf:.3f}"
-            )
+            print_status(f"EARPHONE CONF FILTER — max={max_conf:.3f} threshold=0.40", "yellow")
 
             if max_conf < 0.40:
 
-                logger.info(
-                    "Earphone detections rejected before VLM"
-                )
+                print_status("EARPHONE — rejected before LLM", "red")
 
                 continue
 
@@ -390,7 +377,7 @@ def earphone_worker():
             # VLM VALIDATION
             # =====================================================
 
-            logger.info(f"Passing {len(phrases)} filtered detections to VLM")
+            print_status(f"EARPHONE — passing {len(phrases)} detections to LLM", "yellow")
             result = validate_earphone(
                 phrases,
                 logits,
